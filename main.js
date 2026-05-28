@@ -96,7 +96,14 @@ var FEEDS = [
   { type: "show", label: "Show" }
 ];
 var DEFAULT_SETTINGS = {
-  readingListPath: "HN Reading List.md"
+  displayMode: "sidebar",
+  defaultFeed: "top",
+  storiesCount: 30,
+  readingListMode: "single",
+  readingListPath: "HN Reading List.md",
+  readingListFolder: "HN",
+  addTags: false,
+  tags: "#hn #reading"
 };
 var HNReaderPlugin = class extends import_obsidian.Plugin {
   async onload() {
@@ -110,16 +117,31 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
       name: "Open HN Reader",
       callback: () => this.activateView()
     });
+    this.addCommand({
+      id: "open-hn-reader-tab",
+      name: "Open HN Reader in new tab",
+      callback: () => this.activateView("tab")
+    });
+    this.addCommand({
+      id: "open-hn-reader-sidebar",
+      name: "Open HN Reader in sidebar",
+      callback: () => this.activateView("sidebar")
+    });
     this.addSettingTab(new HNReaderSettingTab(this.app, this));
   }
   async onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_HN);
   }
-  async activateView() {
+  async activateView(mode) {
     const { workspace } = this.app;
+    const targetMode = mode != null ? mode : this.settings.displayMode;
     let [leaf] = workspace.getLeavesOfType(VIEW_TYPE_HN);
     if (!leaf) {
-      leaf = workspace.getRightLeaf(false);
+      if (targetMode === "tab") {
+        leaf = workspace.getLeaf("tab");
+      } else {
+        leaf = workspace.getRightLeaf(false);
+      }
       await leaf.setViewState({ type: VIEW_TYPE_HN, active: true });
     }
     workspace.revealLeaf(leaf);
@@ -131,37 +153,68 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     await this.saveData(this.settings);
   }
   /**
-   * Appends a story to the Reading List note.
-   * Creates the note with a header if it does not exist yet.
+   * Saves a story to the reading list.
+   * Supports single file and daily note modes, with optional tags.
    */
   async saveToReadingList(story) {
     var _a, _b;
     const { vault } = this.app;
-    const filePath = this.settings.readingListPath;
     const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     const storyUrl = (_a = story.url) != null ? _a : getHnItemUrl(story.id);
     const hnUrl = getHnItemUrl(story.id);
-    const line = `- [ ] [${story.title}](${storyUrl}) | ${(_b = story.score) != null ? _b : 0} pts | [HN thread](${hnUrl}) | ${date}
-`;
+    const tagSuffix = this.settings.addTags && this.settings.tags ? " " + this.settings.tags : "";
+    const line = `- [ ] [${story.title}](${storyUrl}) | ${(_b = story.score) != null ? _b : 0} pts | [HN](${hnUrl}) | ${date}` + tagSuffix + "\n";
+    const filePath = this.resolveReadingListPath(date);
     const existing = vault.getAbstractFileByPath(filePath);
     if (existing instanceof import_obsidian.TFile) {
       const content = await vault.read(existing);
       await vault.modify(existing, content + line);
     } else {
-      await vault.create(filePath, `# HN Reading List
-
-${line}`);
+      const header = this.buildFileHeader(date);
+      await this.ensureFolder(filePath);
+      await vault.create(filePath, header + line);
     }
     new import_obsidian.Notice(`Saved: ${story.title.slice(0, 50)}`);
+  }
+  resolveReadingListPath(date) {
+    if (this.settings.readingListMode === "daily") {
+      const folder = this.settings.readingListFolder.replace(/\/$/, "");
+      return folder ? `${folder}/${date}-hn.md` : `${date}-hn.md`;
+    }
+    return this.settings.readingListPath;
+  }
+  buildFileHeader(date) {
+    if (this.settings.readingListMode === "daily") {
+      const tagLine = this.settings.addTags && this.settings.tags ? `
+tags: [${this.settings.tags.replace(/#/g, "").trim().split(/\s+/).join(", ")}]` : "";
+      return `---
+date: ${date}${tagLine}
+---
+
+# HN Reading List ${date}
+
+`;
+    }
+    return `# HN Reading List
+
+`;
+  }
+  async ensureFolder(filePath) {
+    const parts = filePath.split("/");
+    if (parts.length <= 1) return;
+    const folder = parts.slice(0, -1).join("/");
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      await this.app.vault.createFolder(folder);
+    }
   }
 };
 var HNReaderView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
-    this.currentFeed = "top";
     this.stories = [];
     this.isLoading = false;
     this.plugin = plugin;
+    this.currentFeed = plugin.settings.defaultFeed;
   }
   getViewType() {
     return VIEW_TYPE_HN;
@@ -189,7 +242,7 @@ var HNReaderView = class extends import_obsidian.ItemView {
       cls: "hn-reader-refresh",
       attr: { "aria-label": "Refresh" }
     });
-    refreshBtn.setText("\u21BB");
+    refreshBtn.setText("&#x21BB;");
     refreshBtn.addEventListener("click", () => {
       clearCache();
       this.loadStories();
@@ -220,8 +273,9 @@ var HNReaderView = class extends import_obsidian.ItemView {
     storiesEl.empty();
     storiesEl.createDiv("hn-reader-loading").setText("Loading stories...");
     try {
+      const count = this.plugin.settings.storiesCount;
       const ids = await getFeedIds(this.currentFeed);
-      this.stories = await getStories(ids.slice(0, 30));
+      this.stories = await getStories(ids.slice(0, count));
       storiesEl.empty();
       if (this.stories.length === 0) {
         storiesEl.createDiv("hn-reader-empty").setText("No stories found.");
@@ -272,7 +326,7 @@ var HNReaderView = class extends import_obsidian.ItemView {
         cls: "hn-reader-save-btn",
         attr: { "aria-label": "Save to Reading List" }
       });
-      saveBtn.setText("\u{1F516}");
+      saveBtn.setText("bookmark");
       saveBtn.addEventListener("click", async () => {
         await this.plugin.saveToReadingList(story);
         saveBtn.addClass("saved");
@@ -288,14 +342,65 @@ var HNReaderSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "HN Reader Settings" });
-    new import_obsidian.Setting(containerEl).setName("Reading List note").setDesc(
-      "Path to the note where saved stories will be appended (e.g. HN Reading List.md or folder/HN.md)"
-    ).addText(
-      (text) => text.setPlaceholder("HN Reading List.md").setValue(this.plugin.settings.readingListPath).onChange(async (value) => {
-        this.plugin.settings.readingListPath = value.trim() || DEFAULT_SETTINGS.readingListPath;
+    containerEl.createEl("h2", { text: "Display" });
+    new import_obsidian.Setting(containerEl).setName("Display mode").setDesc("Where to open HN Reader by default").addDropdown(
+      (dd) => dd.addOption("sidebar", "Sidebar panel").addOption("tab", "New tab").setValue(this.plugin.settings.displayMode).onChange(async (value) => {
+        this.plugin.settings.displayMode = value;
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian.Setting(containerEl).setName("Default feed").setDesc("Feed shown when plugin opens").addDropdown(
+      (dd) => dd.addOption("top", "Top").addOption("new", "New").addOption("best", "Best").addOption("ask", "Ask HN").addOption("show", "Show HN").addOption("jobs", "Jobs").setValue(this.plugin.settings.defaultFeed).onChange(async (value) => {
+        this.plugin.settings.defaultFeed = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Stories per page").setDesc("How many stories to load at once").addDropdown(
+      (dd) => dd.addOption("10", "10").addOption("20", "20").addOption("30", "30").addOption("50", "50").setValue(String(this.plugin.settings.storiesCount)).onChange(async (value) => {
+        this.plugin.settings.storiesCount = Number(value);
+        await this.plugin.saveSettings();
+      })
+    );
+    containerEl.createEl("h2", { text: "Reading List" });
+    new import_obsidian.Setting(containerEl).setName("Save mode").setDesc("Single file or a new file per day").addDropdown(
+      (dd) => dd.addOption("single", "Single file").addOption("daily", "Daily note").setValue(this.plugin.settings.readingListMode).onChange(async (value) => {
+        this.plugin.settings.readingListMode = value;
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    if (this.plugin.settings.readingListMode === "single") {
+      new import_obsidian.Setting(containerEl).setName("File path").setDesc("Path to the note (e.g. Reading/HN List.md)").addText(
+        (text) => text.setPlaceholder("HN Reading List.md").setValue(this.plugin.settings.readingListPath).onChange(async (value) => {
+          this.plugin.settings.readingListPath = value.trim() || DEFAULT_SETTINGS.readingListPath;
+          await this.plugin.saveSettings();
+        })
+      );
+    } else {
+      new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc(
+        "Folder for daily HN notes. Files named YYYY-MM-DD-hn.md"
+      ).addText(
+        (text) => text.setPlaceholder("HN").setValue(this.plugin.settings.readingListFolder).onChange(async (value) => {
+          this.plugin.settings.readingListFolder = value.trim();
+          await this.plugin.saveSettings();
+        })
+      );
+    }
+    containerEl.createEl("h2", { text: "Tags" });
+    new import_obsidian.Setting(containerEl).setName("Add tags to saved stories").setDesc("Append tags to each saved story line").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.addTags).onChange(async (value) => {
+        this.plugin.settings.addTags = value;
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    if (this.plugin.settings.addTags) {
+      new import_obsidian.Setting(containerEl).setName("Tags").setDesc("Space-separated tags (e.g. #hn #reading #tech)").addText(
+        (text) => text.setPlaceholder("#hn #reading").setValue(this.plugin.settings.tags).onChange(async (value) => {
+          this.plugin.settings.tags = value.trim();
+          await this.plugin.saveSettings();
+        })
+      );
+    }
   }
 };
