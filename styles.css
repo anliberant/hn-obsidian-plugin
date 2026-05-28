@@ -1,4 +1,4 @@
-/* HN Reader — использует CSS-переменные Obsidian, работает в светлой и тёмной теме */
+/* HN Reader — uses Obsidian CSS variables, works in light and dark theme */
 
 .hn-reader-container {
   padding: 12px;
@@ -92,7 +92,8 @@
   padding: 8px 0;
   border-bottom: 1px solid var(--background-modifier-border);
 }
-.hn-reader-item:last-child {
+.hn-reader-item:last-child,
+.hn-reader-item:has(+ .hn-reader-load-more) {
   border-bottom: none;
 }
 
@@ -103,6 +104,12 @@
   text-align: right;
   padding-top: 2px;
   flex-shrink: 0;
+}
+
+/* Body: title + meta + preview stacked */
+.hn-reader-body {
+  flex: 1;
+  min-width: 0;
 }
 
 .hn-reader-content {
@@ -151,23 +158,104 @@
   text-decoration: underline;
 }
 
-/* Save button */
+/* Link preview */
+.hn-reader-preview {
+  margin-top: 8px;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+}
+.hn-reader-preview:empty {
+  display: none;
+}
+
+.hn-reader-preview-loading {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hn-reader-preview-empty {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin: 0;
+}
+
+.hn-reader-preview-img {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.hn-reader-preview-desc {
+  padding: 7px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Action buttons (preview + save) */
+.hn-reader-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.hn-reader-preview-btn,
 .hn-reader-save-btn {
   background: none;
   border: none;
   cursor: pointer;
   opacity: 0.3;
-  font-size: 13px;
   padding: 2px 4px;
   border-radius: var(--radius-s);
   transition: opacity 0.15s, background 0.1s;
-  flex-shrink: 0;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
 }
+.hn-reader-preview-btn:hover,
 .hn-reader-save-btn:hover {
   opacity: 0.8;
   background: var(--background-modifier-hover);
 }
+.hn-reader-preview-btn.active {
+  opacity: 1;
+  color: var(--color-accent);
+}
+.hn-reader-preview-btn.loading {
+  opacity: 0.6;
+  cursor: wait;
+}
 .hn-reader-save-btn.saved {
   opacity: 1;
+  color: var(--color-orange);
+}
+
+/* Load more button */
+.hn-reader-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 7px 0;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.1s, color 0.1s;
+}
+.hn-reader-load-more:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
