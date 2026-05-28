@@ -109,7 +109,10 @@ var DEFAULT_SETTINGS = {
 var HNReaderPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
-    (0, import_obsidian.addIcon)("hn-logo", '<path fill="currentColor" fill-rule="evenodd" d="m0 0h24v24h-24zm12.8 13.446 4.339-8.303h-1.871q-2.143 4.018-2.839 5.786l-.375.96-.32-.75c-.96-2.374-1.931-4.348-3.022-6.243l.129.243h-1.984l4.286 8.2v5.52h1.657z"/>');
+    (0, import_obsidian.addIcon)(
+      "hn-logo",
+      '<path fill="currentColor" d="M12.8 13.446l4.339-8.303h-1.871q-2.143 4.018-2.839 5.786l-.375.96-.32-.75c-.96-2.374-1.931-4.348-3.022-6.243l.129.243h-1.984l4.286 8.2v5.52h1.657z"/>'
+    );
     this.registerView(VIEW_TYPE_HN, (leaf) => new HNReaderView(leaf, this));
     this.addRibbonIcon("hn-logo", "Open HN Reader", () => {
       this.activateView();
@@ -165,7 +168,7 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     const hnUrl = getHnItemUrl(story.id);
     const tagSuffix = this.settings.addTags && this.settings.tags ? " " + this.settings.tags : "";
     const line = `- [ ] [${story.title}](${storyUrl}) | ${(_b = story.score) != null ? _b : 0} pts | [HN](${hnUrl}) | ${date}` + tagSuffix + "\n";
-    const filePath = this.resolveReadingListPath(date);
+    const filePath = await this.resolveReadingListPath(date);
     const existing = vault.getAbstractFileByPath(filePath);
     if (existing instanceof import_obsidian.TFile) {
       const content = await vault.read(existing);
@@ -177,15 +180,29 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     }
     new import_obsidian.Notice(`Saved: ${story.title.slice(0, 50)}`);
   }
-  resolveReadingListPath(date) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+  /**
+   * Resolves the target file path based on the current save-mode settings.
+   *
+   * When useDailyNotesFolder is enabled it reads the Daily Notes core-plugin
+   * config directly from .obsidian/daily-notes.json so that the correct
+   * folder and date format are always honoured, even if the internal plugin
+   * instance has not been loaded yet.
+   */
+  async resolveReadingListPath(date) {
+    var _a, _b;
     if (this.settings.readingListMode === "daily") {
       if (this.settings.useDailyNotesFolder) {
-        const dn = (_a = this.app.internalPlugins) == null ? void 0 : _a.getPluginById("daily-notes");
-        const dnFolder = (_e = (_d = (_c = (_b = dn == null ? void 0 : dn.instance) == null ? void 0 : _b.options) == null ? void 0 : _c.folder) == null ? void 0 : _d.replace(/\/$/, "")) != null ? _e : "";
-        const dnFormat = (_h = (_g = (_f = dn == null ? void 0 : dn.instance) == null ? void 0 : _f.options) == null ? void 0 : _g.format) != null ? _h : "YYYY-MM-DD";
-        const fileName = this.formatDate(dnFormat) + ".md";
-        return dnFolder ? `${dnFolder}/${fileName}` : fileName;
+        try {
+          const configPath = this.app.vault.configDir + "/daily-notes.json";
+          const raw = await this.app.vault.adapter.read(configPath);
+          const config = JSON.parse(raw);
+          const folder2 = ((_a = config.folder) != null ? _a : "").replace(/\/$/, "");
+          const format = (_b = config.format) != null ? _b : "YYYY-MM-DD";
+          const fileName = this.formatDate(format) + ".md";
+          return folder2 ? `${folder2}/${fileName}` : fileName;
+        } catch (e) {
+          return this.formatDate("YYYY-MM-DD") + ".md";
+        }
       }
       const folder = this.settings.readingListFolder.replace(/\/$/, "");
       return folder ? `${folder}/${date}-hn.md` : `${date}-hn.md`;
@@ -255,7 +272,7 @@ var HNReaderView = class extends import_obsidian.ItemView {
       cls: "hn-reader-refresh",
       attr: { "aria-label": "Refresh" }
     });
-    refreshBtn.innerHTML = "\u21BB";
+    refreshBtn.innerHTML = "&#x21BB;";
     refreshBtn.addEventListener("click", () => {
       clearCache();
       this.loadStories();
