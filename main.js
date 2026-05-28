@@ -108,8 +108,9 @@ var DEFAULT_SETTINGS = {
 var HNReaderPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
+    (0, import_obsidian.addIcon)("hn-logo", '<path fill="currentColor" d="m0 0h24v24h-24zm12.8 13.446 4.339-8.303h-1.871q-2.143 4.018-2.839 5.786l-.375.96-.32-.75c-.96-2.374-1.931-4.348-3.022-6.243l.129.243h-1.984l4.286 8.2v5.52h1.657z"/>');
     this.registerView(VIEW_TYPE_HN, (leaf) => new HNReaderView(leaf, this));
-    this.addRibbonIcon("newspaper", "Open HN Reader", () => {
+    this.addRibbonIcon("hn-logo", "Open HN Reader", () => {
       this.activateView();
     });
     this.addCommand({
@@ -223,7 +224,7 @@ var HNReaderView = class extends import_obsidian.ItemView {
     return "HN Reader";
   }
   getIcon() {
-    return "newspaper";
+    return "hn-logo";
   }
   async onOpen() {
     this.buildShell();
@@ -242,7 +243,7 @@ var HNReaderView = class extends import_obsidian.ItemView {
       cls: "hn-reader-refresh",
       attr: { "aria-label": "Refresh" }
     });
-    refreshBtn.setText("&#x21BB;");
+    refreshBtn.innerHTML = "\u21BB";
     refreshBtn.addEventListener("click", () => {
       clearCache();
       this.loadStories();
@@ -326,7 +327,7 @@ var HNReaderView = class extends import_obsidian.ItemView {
         cls: "hn-reader-save-btn",
         attr: { "aria-label": "Save to Reading List" }
       });
-      saveBtn.setText("bookmark");
+      (0, import_obsidian.setIcon)(saveBtn, "bookmark");
       saveBtn.addEventListener("click", async () => {
         await this.plugin.saveToReadingList(story);
         saveBtn.addClass("saved");
