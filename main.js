@@ -103,12 +103,13 @@ var DEFAULT_SETTINGS = {
   readingListPath: "HN Reading List.md",
   readingListFolder: "HN",
   addTags: false,
-  tags: "#hn #reading"
+  tags: "#hn #reading",
+  useDailyNotesFolder: false
 };
 var HNReaderPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
-    (0, import_obsidian.addIcon)("hn-logo", '<path fill="currentColor" d="m0 0h24v24h-24zm12.8 13.446 4.339-8.303h-1.871q-2.143 4.018-2.839 5.786l-.375.96-.32-.75c-.96-2.374-1.931-4.348-3.022-6.243l.129.243h-1.984l4.286 8.2v5.52h1.657z"/>');
+    (0, import_obsidian.addIcon)("hn-logo", '<path fill="currentColor" fill-rule="evenodd" d="m0 0h24v24h-24zm12.8 13.446 4.339-8.303h-1.871q-2.143 4.018-2.839 5.786l-.375.96-.32-.75c-.96-2.374-1.931-4.348-3.022-6.243l.129.243h-1.984l4.286 8.2v5.52h1.657z"/>');
     this.registerView(VIEW_TYPE_HN, (leaf) => new HNReaderView(leaf, this));
     this.addRibbonIcon("hn-logo", "Open HN Reader", () => {
       this.activateView();
@@ -136,15 +137,14 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
   async activateView(mode) {
     const { workspace } = this.app;
     const targetMode = mode != null ? mode : this.settings.displayMode;
-    let [leaf] = workspace.getLeavesOfType(VIEW_TYPE_HN);
-    if (!leaf) {
-      if (targetMode === "tab") {
-        leaf = workspace.getLeaf("tab");
-      } else {
-        leaf = workspace.getRightLeaf(false);
-      }
-      await leaf.setViewState({ type: VIEW_TYPE_HN, active: true });
+    workspace.getLeavesOfType(VIEW_TYPE_HN).forEach((l) => l.detach());
+    let leaf;
+    if (targetMode === "tab") {
+      leaf = workspace.getLeaf("tab");
+    } else {
+      leaf = workspace.getRightLeaf(false);
     }
+    await leaf.setViewState({ type: VIEW_TYPE_HN, active: true });
     workspace.revealLeaf(leaf);
   }
   async loadSettings() {
@@ -178,11 +178,23 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     new import_obsidian.Notice(`Saved: ${story.title.slice(0, 50)}`);
   }
   resolveReadingListPath(date) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     if (this.settings.readingListMode === "daily") {
+      if (this.settings.useDailyNotesFolder) {
+        const dn = (_a = this.app.internalPlugins) == null ? void 0 : _a.getPluginById("daily-notes");
+        const dnFolder = (_e = (_d = (_c = (_b = dn == null ? void 0 : dn.instance) == null ? void 0 : _b.options) == null ? void 0 : _c.folder) == null ? void 0 : _d.replace(/\/$/, "")) != null ? _e : "";
+        const dnFormat = (_h = (_g = (_f = dn == null ? void 0 : dn.instance) == null ? void 0 : _f.options) == null ? void 0 : _g.format) != null ? _h : "YYYY-MM-DD";
+        const fileName = this.formatDate(dnFormat) + ".md";
+        return dnFolder ? `${dnFolder}/${fileName}` : fileName;
+      }
       const folder = this.settings.readingListFolder.replace(/\/$/, "");
       return folder ? `${folder}/${date}-hn.md` : `${date}-hn.md`;
     }
     return this.settings.readingListPath;
+  }
+  formatDate(format) {
+    const now = /* @__PURE__ */ new Date();
+    return format.replace("YYYY", String(now.getFullYear())).replace("MM", String(now.getMonth() + 1).padStart(2, "0")).replace("DD", String(now.getDate()).padStart(2, "0"));
   }
   buildFileHeader(date) {
     if (this.settings.readingListMode === "daily") {
@@ -378,14 +390,21 @@ var HNReaderSettingTab = class extends import_obsidian.PluginSettingTab {
         })
       );
     } else {
-      new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc(
-        "Folder for daily HN notes. Files named YYYY-MM-DD-hn.md"
-      ).addText(
-        (text) => text.setPlaceholder("HN").setValue(this.plugin.settings.readingListFolder).onChange(async (value) => {
-          this.plugin.settings.readingListFolder = value.trim();
+      new import_obsidian.Setting(containerEl).setName("Use Obsidian Daily Notes folder").setDesc("Append to the same note that the Daily Notes core plugin creates").addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.useDailyNotesFolder).onChange(async (value) => {
+          this.plugin.settings.useDailyNotesFolder = value;
           await this.plugin.saveSettings();
+          this.display();
         })
       );
+      if (!this.plugin.settings.useDailyNotesFolder) {
+        new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc("Folder for daily HN notes. Files named YYYY-MM-DD-hn.md").addText(
+          (text) => text.setPlaceholder("HN").setValue(this.plugin.settings.readingListFolder).onChange(async (value) => {
+            this.plugin.settings.readingListFolder = value.trim();
+            await this.plugin.saveSettings();
+          })
+        );
+      }
     }
     containerEl.createEl("h2", { text: "Tags" });
     new import_obsidian.Setting(containerEl).setName("Add tags to saved stories").setDesc("Append tags to each saved story line").addToggle(
