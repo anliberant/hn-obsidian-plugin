@@ -1,0 +1,173 @@
+/* HN Reader — использует CSS-переменные Obsidian, работает в светлой и тёмной теме */
+
+.hn-reader-container {
+  padding: 12px;
+  font-family: var(--font-interface);
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* Header */
+.hn-reader-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.hn-reader-title {
+  margin: 0;
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
+  color: var(--color-orange);
+}
+
+.hn-reader-refresh {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  line-height: 1;
+  transition: background 0.1s;
+}
+.hn-reader-refresh:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Feed switcher */
+.hn-reader-feed-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.hn-reader-feed-btn {
+  padding: 3px 10px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  transition: background 0.1s, color 0.1s;
+}
+.hn-reader-feed-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.hn-reader-feed-btn.active {
+  background: var(--color-orange);
+  color: #fff;
+  border-color: var(--color-orange);
+  font-weight: 500;
+}
+
+/* States */
+.hn-reader-loading,
+.hn-reader-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px 0;
+  font-size: var(--font-ui-small);
+}
+
+.hn-reader-error {
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+  padding: 12px 0;
+  text-align: center;
+}
+
+/* Story item */
+.hn-reader-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.hn-reader-item:last-child {
+  border-bottom: none;
+}
+
+.hn-reader-rank {
+  color: var(--text-faint);
+  font-size: 11px;
+  min-width: 18px;
+  text-align: right;
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.hn-reader-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.hn-reader-story-title {
+  display: block;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  text-decoration: none;
+  line-height: 1.4;
+  margin-bottom: 3px;
+  word-break: break-word;
+}
+.hn-reader-story-title:hover {
+  color: var(--color-accent);
+}
+
+.hn-reader-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.hn-reader-score {
+  color: var(--color-orange);
+  font-weight: 500;
+}
+
+.hn-reader-sep {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+.hn-reader-comments {
+  color: var(--text-faint);
+  text-decoration: none;
+}
+.hn-reader-comments:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* Save button */
+.hn-reader-save-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.3;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: var(--radius-s);
+  transition: opacity 0.15s, background 0.1s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.hn-reader-save-btn:hover {
+  opacity: 0.8;
+  background: var(--background-modifier-hover);
+}
+.hn-reader-save-btn.saved {
+  opacity: 1;
+}
