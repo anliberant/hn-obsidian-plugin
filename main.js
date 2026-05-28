@@ -88,6 +88,7 @@ function clearCache() {
 
 // src/main.ts
 var VIEW_TYPE_HN = "hn-reader-view";
+var HN_BLOCK_HEADER = "## HN Reading List";
 var FEEDS = [
   { type: "top", label: "Top" },
   { type: "new", label: "New" },
@@ -101,17 +102,16 @@ var DEFAULT_SETTINGS = {
   storiesCount: 30,
   readingListMode: "single",
   readingListPath: "HN Reading List.md",
-  readingListFolder: "HN",
+  dailyNotesFolder: "Daily Notes",
   addTags: false,
-  tags: "#hn #reading",
-  useDailyNotesFolder: false
+  tags: "#hn #reading"
 };
 var HNReaderPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
     (0, import_obsidian.addIcon)(
       "hn-logo",
-      '<path fill="currentColor" d="M12.8 13.446l4.339-8.303h-1.871q-2.143 4.018-2.839 5.786l-.375.96-.32-.75c-.96-2.374-1.931-4.348-3.022-6.243l.129.243h-1.984l4.286 8.2v5.52h1.657z"/>'
+      '<path fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" d="M18 15 50 53 82 15M50 53V87"/>'
     );
     this.registerView(VIEW_TYPE_HN, (leaf) => new HNReaderView(leaf, this));
     this.addRibbonIcon("hn-logo", "Open HN Reader", () => {
@@ -132,6 +132,11 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
       name: "Open HN Reader in sidebar",
       callback: () => this.activateView("sidebar")
     });
+    this.addCommand({
+      id: "open-hn-reader-both",
+      name: "Open HN Reader in sidebar and tab",
+      callback: () => this.activateView("both")
+    });
     this.addSettingTab(new HNReaderSettingTab(this.app, this));
   }
   async onunload() {
@@ -141,14 +146,21 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     const { workspace } = this.app;
     const targetMode = mode != null ? mode : this.settings.displayMode;
     workspace.getLeavesOfType(VIEW_TYPE_HN).forEach((l) => l.detach());
-    let leaf;
-    if (targetMode === "tab") {
-      leaf = workspace.getLeaf("tab");
+    if (targetMode === "both") {
+      const sidebarLeaf = workspace.getRightLeaf(false);
+      await sidebarLeaf.setViewState({ type: VIEW_TYPE_HN, active: false });
+      const tabLeaf = workspace.getLeaf("tab");
+      await tabLeaf.setViewState({ type: VIEW_TYPE_HN, active: true });
+      workspace.revealLeaf(tabLeaf);
+    } else if (targetMode === "tab") {
+      const leaf = workspace.getLeaf("tab");
+      await leaf.setViewState({ type: VIEW_TYPE_HN, active: true });
+      workspace.revealLeaf(leaf);
     } else {
-      leaf = workspace.getRightLeaf(false);
+      const leaf = workspace.getRightLeaf(false);
+      await leaf.setViewState({ type: VIEW_TYPE_HN, active: true });
+      workspace.revealLeaf(leaf);
     }
-    await leaf.setViewState({ type: VIEW_TYPE_HN, active: true });
-    workspace.revealLeaf(leaf);
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -156,10 +168,9 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
-  /**
-   * Saves a story to the reading list.
-   * Supports single file and daily note modes, with optional tags.
-   */
+  // ---------------------------------------------------------------------------
+  // Reading list
+  // ---------------------------------------------------------------------------
   async saveToReadingList(story) {
     var _a, _b;
     const { vault } = this.app;
@@ -167,53 +178,64 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     const storyUrl = (_a = story.url) != null ? _a : getHnItemUrl(story.id);
     const hnUrl = getHnItemUrl(story.id);
     const tagSuffix = this.settings.addTags && this.settings.tags ? " " + this.settings.tags : "";
-    const line = `- [ ] [${story.title}](${storyUrl}) | ${(_b = story.score) != null ? _b : 0} pts | [HN](${hnUrl}) | ${date}` + tagSuffix + "\n";
-    const filePath = await this.resolveReadingListPath(date);
+    const item = `- [ ] [${story.title}](${storyUrl}) | ${(_b = story.score) != null ? _b : 0} pts | [HN](${hnUrl}) | ${date}` + tagSuffix;
+    const filePath = this.resolveReadingListPath(date);
     const existing = vault.getAbstractFileByPath(filePath);
     if (existing instanceof import_obsidian.TFile) {
       const content = await vault.read(existing);
-      await vault.modify(existing, content + line);
+      await vault.modify(existing, this.insertIntoBlock(content, item));
     } else {
-      const header = this.buildFileHeader(date);
       await this.ensureFolder(filePath);
-      await vault.create(filePath, header + line);
+      await vault.create(filePath, this.buildNewFile(date, item));
     }
     new import_obsidian.Notice(`Saved: ${story.title.slice(0, 50)}`);
   }
   /**
-   * Resolves the target file path based on the current save-mode settings.
-   *
-   * When useDailyNotesFolder is enabled it reads the Daily Notes core-plugin
-   * config directly from .obsidian/daily-notes.json so that the correct
-   * folder and date format are always honoured, even if the internal plugin
-   * instance has not been loaded yet.
+   * Returns the target file path for the current save-mode settings.
+   * In daily mode files are named YYYY-MM-DD.md so they slot naturally
+   * into an existing Daily Notes folder.
    */
-  async resolveReadingListPath(date) {
-    var _a, _b;
+  resolveReadingListPath(date) {
     if (this.settings.readingListMode === "daily") {
-      if (this.settings.useDailyNotesFolder) {
-        try {
-          const configPath = this.app.vault.configDir + "/daily-notes.json";
-          const raw = await this.app.vault.adapter.read(configPath);
-          const config = JSON.parse(raw);
-          const folder2 = ((_a = config.folder) != null ? _a : "").replace(/\/$/, "");
-          const format = (_b = config.format) != null ? _b : "YYYY-MM-DD";
-          const fileName = this.formatDate(format) + ".md";
-          return folder2 ? `${folder2}/${fileName}` : fileName;
-        } catch (e) {
-          return this.formatDate("YYYY-MM-DD") + ".md";
-        }
-      }
-      const folder = this.settings.readingListFolder.replace(/\/$/, "");
-      return folder ? `${folder}/${date}-hn.md` : `${date}-hn.md`;
+      const folder = this.settings.dailyNotesFolder.replace(/\/$/, "");
+      return folder ? `${folder}/${date}.md` : `${date}.md`;
     }
     return this.settings.readingListPath;
   }
-  formatDate(format) {
-    const now = /* @__PURE__ */ new Date();
-    return format.replace("YYYY", String(now.getFullYear())).replace("MM", String(now.getMonth() + 1).padStart(2, "0")).replace("DD", String(now.getDate()).padStart(2, "0"));
+  /**
+   * Inserts `item` into the HN Reading List block inside `content`.
+   *
+   * Rules:
+   *  - If the block header exists anywhere in the file, the item is appended
+   *    after the last list entry inside that block (before the next heading
+   *    or end of file).
+   *  - If there is no block, the block is appended at the very end.
+   */
+  insertIntoBlock(content, item) {
+    const lines = content.split("\n");
+    const headerIdx = lines.findIndex(
+      (l) => l.trimEnd() === HN_BLOCK_HEADER
+    );
+    if (headerIdx === -1) {
+      const tail = content.endsWith("\n") ? "" : "\n";
+      return content + tail + "\n" + HN_BLOCK_HEADER + "\n\n" + item + "\n";
+    }
+    let blockEnd = lines.length;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (/^#{1,6} /.test(lines[i])) {
+        blockEnd = i;
+        break;
+      }
+    }
+    let insertAfter = headerIdx + 1;
+    for (let i = headerIdx + 1; i < blockEnd; i++) {
+      if (lines[i].startsWith("- ")) insertAfter = i + 1;
+    }
+    lines.splice(insertAfter, 0, item);
+    return lines.join("\n");
   }
-  buildFileHeader(date) {
+  /** Creates the initial file content when the target file does not yet exist. */
+  buildNewFile(date, item) {
     if (this.settings.readingListMode === "daily") {
       const tagLine = this.settings.addTags && this.settings.tags ? `
 tags: [${this.settings.tags.replace(/#/g, "").trim().split(/\s+/).join(", ")}]` : "";
@@ -221,12 +243,14 @@ tags: [${this.settings.tags.replace(/#/g, "").trim().split(/\s+/).join(", ")}]` 
 date: ${date}${tagLine}
 ---
 
-# HN Reading List ${date}
+${HN_BLOCK_HEADER}
 
+${item}
 `;
     }
     return `# HN Reading List
 
+${item}
 `;
   }
   async ensureFolder(filePath) {
@@ -374,7 +398,7 @@ var HNReaderSettingTab = class extends import_obsidian.PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Display" });
     new import_obsidian.Setting(containerEl).setName("Display mode").setDesc("Where to open HN Reader by default").addDropdown(
-      (dd) => dd.addOption("sidebar", "Sidebar panel").addOption("tab", "New tab").setValue(this.plugin.settings.displayMode).onChange(async (value) => {
+      (dd) => dd.addOption("sidebar", "Sidebar panel").addOption("tab", "New tab").addOption("both", "Sidebar + tab").setValue(this.plugin.settings.displayMode).onChange(async (value) => {
         this.plugin.settings.displayMode = value;
         await this.plugin.saveSettings();
       })
@@ -392,7 +416,7 @@ var HNReaderSettingTab = class extends import_obsidian.PluginSettingTab {
       })
     );
     containerEl.createEl("h2", { text: "Reading List" });
-    new import_obsidian.Setting(containerEl).setName("Save mode").setDesc("Single file or a new file per day").addDropdown(
+    new import_obsidian.Setting(containerEl).setName("Save mode").setDesc("Single file or append to daily notes").addDropdown(
       (dd) => dd.addOption("single", "Single file").addOption("daily", "Daily note").setValue(this.plugin.settings.readingListMode).onChange(async (value) => {
         this.plugin.settings.readingListMode = value;
         await this.plugin.saveSettings();
@@ -400,28 +424,21 @@ var HNReaderSettingTab = class extends import_obsidian.PluginSettingTab {
       })
     );
     if (this.plugin.settings.readingListMode === "single") {
-      new import_obsidian.Setting(containerEl).setName("File path").setDesc("Path to the note (e.g. Reading/HN List.md)").addText(
+      new import_obsidian.Setting(containerEl).setName("File path").setDesc("Path to the reading list note (e.g. Reading/HN List.md)").addText(
         (text) => text.setPlaceholder("HN Reading List.md").setValue(this.plugin.settings.readingListPath).onChange(async (value) => {
           this.plugin.settings.readingListPath = value.trim() || DEFAULT_SETTINGS.readingListPath;
           await this.plugin.saveSettings();
         })
       );
     } else {
-      new import_obsidian.Setting(containerEl).setName("Use Obsidian Daily Notes folder").setDesc("Append to the same note that the Daily Notes core plugin creates").addToggle(
-        (toggle) => toggle.setValue(this.plugin.settings.useDailyNotesFolder).onChange(async (value) => {
-          this.plugin.settings.useDailyNotesFolder = value;
+      new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc(
+        'Folder where your daily notes live (e.g. Daily Notes or Journal). Stories are saved into YYYY-MM-DD.md files. If the file already exists, a "## HN Reading List" block is created or updated automatically \u2014 even if the block is not at the end.'
+      ).addText(
+        (text) => text.setPlaceholder("Daily Notes").setValue(this.plugin.settings.dailyNotesFolder).onChange(async (value) => {
+          this.plugin.settings.dailyNotesFolder = value.trim();
           await this.plugin.saveSettings();
-          this.display();
         })
       );
-      if (!this.plugin.settings.useDailyNotesFolder) {
-        new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc("Folder for daily HN notes. Files named YYYY-MM-DD-hn.md").addText(
-          (text) => text.setPlaceholder("HN").setValue(this.plugin.settings.readingListFolder).onChange(async (value) => {
-            this.plugin.settings.readingListFolder = value.trim();
-            await this.plugin.saveSettings();
-          })
-        );
-      }
     }
     containerEl.createEl("h2", { text: "Tags" });
     new import_obsidian.Setting(containerEl).setName("Add tags to saved stories").setDesc("Append tags to each saved story line").addToggle(
