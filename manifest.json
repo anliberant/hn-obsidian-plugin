@@ -3,11 +3,7 @@
   "name": "HN Reader",
   "version": "1.0.0",
   "minAppVersion": "1.4.0",
-  "description": "Initial release of HN Reader for Obsidian.
-
-- Browse top Hacker News stories inside Obsidian.
-- Save interesting links to your reading workflow.
-- Includes manifest.json, main.js, and styles.css.",
+  "description": "Initial release of HN Reader for Obsidian.",
   "author": "Anton Liberant",
   "authorUrl": "https://github.com/anliberant",
   "isDesktopOnly": false
