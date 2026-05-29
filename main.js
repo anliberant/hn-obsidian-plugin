@@ -215,30 +215,74 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
   // ---------------------------------------------------------------------------
   // Reading list
   // ---------------------------------------------------------------------------
+  resolveReadingListPath(date) {
+    if (this.settings.readingListMode === "daily") {
+      const folder = this.settings.dailyNotesFolder.replace(/\/$/, "");
+      return folder ? `${folder}/${date}.md` : `${date}.md`;
+    }
+    return this.settings.readingListPath;
+  }
+  async isStorySaved(storyId) {
+    const { vault } = this.app;
+    const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
+    const filePath = this.resolveReadingListPath(date);
+    const file = vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof import_obsidian.TFile)) return false;
+    const content = await vault.read(file);
+    return content.includes(getHnItemUrl(storyId));
+  }
+  async removeFromReadingList(story) {
+    const { vault } = this.app;
+    const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
+    const filePath = this.resolveReadingListPath(date);
+    const file = vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof import_obsidian.TFile)) return;
+    const content = await vault.read(file);
+    const hnUrl = getHnItemUrl(story.id);
+    const lines = content.split("\n");
+    const itemIdx = lines.findIndex((l) => l.includes(hnUrl));
+    if (itemIdx === -1) return;
+    let endIdx = itemIdx + 1;
+    while (endIdx < lines.length && (lines[endIdx].startsWith("  ") || lines[endIdx].startsWith("	"))) {
+      endIdx++;
+    }
+    lines.splice(itemIdx, endIdx - itemIdx);
+    await vault.modify(file, lines.join("\n"));
+    new import_obsidian.Notice(`Removed: ${story.title.slice(0, 50)}`);
+  }
   async saveToReadingList(story, cachedPreview) {
     var _a, _b;
     const { vault } = this.app;
     const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     const storyUrl = (_a = story.url) != null ? _a : getHnItemUrl(story.id);
     const hnUrl = getHnItemUrl(story.id);
+    const filePath = this.resolveReadingListPath(date);
+    const existingFile = vault.getAbstractFileByPath(filePath);
+    if (existingFile instanceof import_obsidian.TFile) {
+      const existingContent = await vault.read(existingFile);
+      if (existingContent.includes(hnUrl)) {
+        new import_obsidian.Notice(`Already saved: ${story.title.slice(0, 50)}`);
+        return;
+      }
+    }
     const tagSuffix = this.settings.addTags && this.settings.tags ? " " + this.settings.tags : "";
     let item = `- [ ] [${story.title}](${storyUrl}) | ${(_b = story.score) != null ? _b : 0} pts | [HN](${hnUrl}) | ${date}` + tagSuffix;
     if (this.settings.savePreview) {
       const preview = cachedPreview != null ? cachedPreview : story.url ? await fetchLinkPreview(story.url) : {};
       const sz = this.settings.previewImageSize;
-      if (preview.image && preview.description) {
-        const desc = preview.description.replace(/\n+/g, " ");
+      const desc = preview.description ? preview.description.replace(/\n+/g, " ") : "";
+      if (preview.image && desc) {
         item += `
-  <img src="${preview.image}" width="${sz}" style="float:left;margin:0 8px 4px 0">${desc}<br style="clear:both">`;
+  ![|${sz}](${preview.image})
+  ${desc}`;
       } else if (preview.image) {
         item += `
   ![|${sz}](${preview.image})`;
-      } else if (preview.description) {
+      } else if (desc) {
         item += `
-  > ${preview.description.replace(/\n+/g, " ")}`;
+  ${desc}`;
       }
     }
-    const filePath = this.resolveReadingListPath(date);
     const existing = vault.getAbstractFileByPath(filePath);
     if (existing instanceof import_obsidian.TFile) {
       const content = await vault.read(existing);
@@ -249,13 +293,6 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
       await vault.create(filePath, this.buildNewFile(date, item));
     }
     new import_obsidian.Notice(`Saved: ${story.title.slice(0, 50)}`);
-  }
-  resolveReadingListPath(date) {
-    if (this.settings.readingListMode === "daily") {
-      const folder = this.settings.dailyNotesFolder.replace(/\/$/, "");
-      return folder ? `${folder}/${date}.md` : `${date}.md`;
-    }
-    return this.settings.readingListPath;
   }
   /** Finds or creates "## HN Reading List" block and inserts item inside it. */
   insertIntoBlock(content, item) {
@@ -274,7 +311,12 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     }
     let insertAfter = headerIdx + 1;
     for (let i = headerIdx + 1; i < blockEnd; i++) {
-      if (lines[i].startsWith("- ")) insertAfter = i + 1;
+      if (lines[i].startsWith("- ")) {
+        insertAfter = i + 1;
+        while (insertAfter < blockEnd && (lines[insertAfter].startsWith("  ") || lines[insertAfter].startsWith("	"))) {
+          insertAfter++;
+        }
+      }
     }
     lines.splice(insertAfter, 0, item);
     return lines.join("\n");
@@ -499,10 +541,18 @@ var HNReaderView = class extends import_obsidian.ItemView {
         attr: { "aria-label": "Save to reading list" }
       });
       (0, import_obsidian.setIcon)(saveBtn, "bookmark");
+      this.plugin.isStorySaved(story.id).then((saved) => {
+        if (saved) saveBtn.addClass("is-saved");
+      });
       saveBtn.addEventListener("click", async () => {
-        const preview = this.previews.get(story.id);
-        await this.plugin.saveToReadingList(story, preview);
-        saveBtn.addClass("is-saved");
+        if (saveBtn.hasClass("is-saved")) {
+          await this.plugin.removeFromReadingList(story);
+          saveBtn.removeClass("is-saved");
+        } else {
+          const preview = this.previews.get(story.id);
+          await this.plugin.saveToReadingList(story, preview);
+          saveBtn.addClass("is-saved");
+        }
       });
     });
   }
