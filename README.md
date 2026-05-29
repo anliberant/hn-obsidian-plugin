@@ -2,8 +2,6 @@
 
 Browse [Hacker News](https://news.ycombinator.com) top stories directly inside Obsidian. Save interesting links to your reading list with one click.
 
-![HN Reader for Obsidian Screenshot](./plugin-screenshot.png)
-
 ## Features
 
 - Browse **Top, New, Best, Ask HN, Show HN** feeds
