@@ -17,7 +17,6 @@
 }
 
 .hn-reader-title {
-  margin: 0;
   font-size: var(--font-ui-medium);
   font-weight: 600;
   color: var(--color-orange);
@@ -46,7 +45,6 @@
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
-
 .hn-reader-feed-btn {
   padding: 3px 10px;
   border-radius: var(--radius-s);
@@ -57,10 +55,7 @@
   font-size: var(--font-ui-small);
   transition: background 0.1s, color 0.1s;
 }
-.hn-reader-feed-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
+.hn-reader-feed-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
 .hn-reader-feed-btn.active {
   background: var(--color-orange);
   color: #fff;
@@ -76,7 +71,6 @@
   padding: 24px 0;
   font-size: var(--font-ui-small);
 }
-
 .hn-reader-error {
   color: var(--text-error);
   font-size: var(--font-ui-small);
@@ -84,38 +78,26 @@
   text-align: center;
 }
 
-/* Story item */
+/* ── Story item layout (CSS grid: rank | body | actions) ── */
 .hn-reader-item {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
   gap: 6px;
   padding: 8px 0;
   border-bottom: 1px solid var(--background-modifier-border);
+  align-items: start;
 }
-.hn-reader-item:last-child,
-.hn-reader-item:has(+ .hn-reader-load-more) {
-  border-bottom: none;
-}
+.hn-reader-item:last-child { border-bottom: none; }
 
 .hn-reader-rank {
   color: var(--text-faint);
   font-size: 11px;
-  min-width: 18px;
   text-align: right;
   padding-top: 2px;
-  flex-shrink: 0;
 }
 
-/* Body: title + meta + preview stacked */
-.hn-reader-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.hn-reader-content {
-  flex: 1;
-  min-width: 0;
-}
+/* Body: title + meta + preview stacked vertically */
+.hn-reader-body { min-width: 0; }
 
 .hn-reader-story-title {
   display: block;
@@ -126,9 +108,7 @@
   margin-bottom: 3px;
   word-break: break-word;
 }
-.hn-reader-story-title:hover {
-  color: var(--color-accent);
-}
+.hn-reader-story-title:hover { color: var(--color-accent); }
 
 .hn-reader-meta {
   font-size: 11px;
@@ -138,58 +118,39 @@
   gap: 4px;
   align-items: center;
 }
+.hn-reader-score  { color: var(--color-orange); font-weight: 500; }
+.hn-reader-sep    { opacity: 0.5; }
+.hn-reader-comments { color: var(--text-faint); text-decoration: none; }
+.hn-reader-comments:hover { color: var(--color-accent); text-decoration: underline; }
 
-.hn-reader-score {
-  color: var(--color-orange);
-  font-weight: 500;
-}
-
-.hn-reader-sep {
-  color: var(--text-faint);
-  opacity: 0.5;
-}
-
-.hn-reader-comments {
-  color: var(--text-faint);
-  text-decoration: none;
-}
-.hn-reader-comments:hover {
-  color: var(--color-accent);
-  text-decoration: underline;
-}
-
-/* Link preview */
+/* Preview panel */
 .hn-reader-preview {
   margin-top: 8px;
   border-radius: var(--radius-m);
   overflow: hidden;
   border: 1px solid var(--background-modifier-border);
 }
-.hn-reader-preview:empty {
-  display: none;
-}
+.hn-reader-preview:empty,
+.hn-reader-preview.is-hidden { display: none; }
 
 .hn-reader-preview-loading {
   padding: 8px 10px;
   font-size: 11px;
   color: var(--text-muted);
 }
-
 .hn-reader-preview-empty {
   padding: 8px 10px;
   font-size: 11px;
   color: var(--text-faint);
   margin: 0;
 }
-
 .hn-reader-preview-img {
   display: block;
   width: 100%;
-  max-height: 160px;
-  object-fit: cover;
+  object-fit: contain;
   border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
 }
-
 .hn-reader-preview-desc {
   padding: 7px 10px;
   font-size: 11px;
@@ -198,44 +159,49 @@
   margin: 0;
 }
 
-/* Action buttons (preview + save) */
+/* Action buttons column (right side) */
 .hn-reader-actions {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  flex-shrink: 0;
+  gap: 2px;
+  padding-top: 1px;
 }
 
-.hn-reader-preview-btn,
-.hn-reader-save-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  opacity: 0.3;
-  padding: 2px 4px;
-  border-radius: var(--radius-s);
-  transition: opacity 0.15s, background 0.1s;
-  line-height: 1;
+.hn-reader-action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.35;
+  transition: opacity 0.15s, background 0.1s, color 0.1s;
+  flex-shrink: 0;
 }
-.hn-reader-preview-btn:hover,
-.hn-reader-save-btn:hover {
+.hn-reader-action-btn:hover {
   opacity: 0.8;
   background: var(--background-modifier-hover);
 }
-.hn-reader-preview-btn.active {
+/* Constrain the Lucide SVG so both icons are the same size */
+.hn-reader-action-btn svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.hn-reader-action-btn.is-active {
   opacity: 1;
   color: var(--color-accent);
 }
-.hn-reader-preview-btn.loading {
-  opacity: 0.6;
+.hn-reader-action-btn.is-loading {
+  opacity: 0.5;
   cursor: wait;
 }
-.hn-reader-save-btn.saved {
+.hn-reader-action-btn.is-saved {
   opacity: 1;
   color: var(--color-orange);
 }

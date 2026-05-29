@@ -1,7 +1,7 @@
 {
   "id": "hn-reader",
   "name": "HN Reader",
-  "version": "1.5.0",
+  "version": "1.0.0",
   "minAppVersion": "1.4.0",
   "description": "Browse top Hacker News stories and save them to your reading list",
   "author": "Anton Liberant",

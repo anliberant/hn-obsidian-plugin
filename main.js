@@ -113,7 +113,7 @@ async function fetchLinkPreview(url) {
     const html = resp.text;
     const getMeta = (...props) => {
       for (const prop of props) {
-        const patterns = [
+        for (const re of [
           new RegExp(
             `<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`,
             "i"
@@ -122,13 +122,11 @@ async function fetchLinkPreview(url) {
             `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`,
             "i"
           )
-        ];
-        for (const re of patterns) {
+        ]) {
           const m = html.match(re);
           if (m == null ? void 0 : m[1]) return decodeHTMLEntities(m[1]);
         }
       }
-      return void 0;
     };
     return {
       image: getMeta("og:image", "twitter:image"),
@@ -151,7 +149,8 @@ var DEFAULT_SETTINGS = {
   dailyNotesFolder: "Daily Notes",
   addTags: false,
   tags: "#hn #reading",
-  savePreview: false
+  savePreview: false,
+  previewImageSize: 200
 };
 var HNReaderPlugin = class extends import_obsidian.Plugin {
   async onload() {
@@ -161,9 +160,7 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
       '<path fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" d="M18 15 50 53 82 15M50 53V87"/>'
     );
     this.registerView(VIEW_TYPE_HN, (leaf) => new HNReaderView(leaf, this));
-    this.addRibbonIcon("hn-logo", "Open HN Reader", () => {
-      this.activateView();
-    });
+    this.addRibbonIcon("hn-logo", "Open HN Reader", () => this.activateView());
     this.addCommand({
       id: "open-hn-reader",
       name: "Open HN Reader",
@@ -194,11 +191,11 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     const targetMode = mode != null ? mode : this.settings.displayMode;
     workspace.getLeavesOfType(VIEW_TYPE_HN).forEach((l) => l.detach());
     if (targetMode === "both") {
-      const sidebarLeaf = workspace.getRightLeaf(false);
-      await sidebarLeaf.setViewState({ type: VIEW_TYPE_HN, active: false });
-      const tabLeaf = workspace.getLeaf("tab");
-      await tabLeaf.setViewState({ type: VIEW_TYPE_HN, active: true });
-      workspace.revealLeaf(tabLeaf);
+      const sl = workspace.getRightLeaf(false);
+      await sl.setViewState({ type: VIEW_TYPE_HN, active: false });
+      const tl = workspace.getLeaf("tab");
+      await tl.setViewState({ type: VIEW_TYPE_HN, active: true });
+      workspace.revealLeaf(tl);
     } else if (targetMode === "tab") {
       const leaf = workspace.getLeaf("tab");
       await leaf.setViewState({ type: VIEW_TYPE_HN, active: true });
@@ -228,18 +225,25 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     let item = `- [ ] [${story.title}](${storyUrl}) | ${(_b = story.score) != null ? _b : 0} pts | [HN](${hnUrl}) | ${date}` + tagSuffix;
     if (this.settings.savePreview) {
       const preview = cachedPreview != null ? cachedPreview : story.url ? await fetchLinkPreview(story.url) : {};
-      if (preview.description) {
-        item += "\n  > " + preview.description.replace(/\n+/g, " ");
-      }
-      if (preview.image) {
-        item += "\n  ![](" + preview.image + ")";
+      const sz = this.settings.previewImageSize;
+      if (preview.image && preview.description) {
+        const desc = preview.description.replace(/\n+/g, " ");
+        item += `
+  <img src="${preview.image}" width="${sz}" style="float:left;margin:0 8px 4px 0">${desc}<br style="clear:both">`;
+      } else if (preview.image) {
+        item += `
+  ![|${sz}](${preview.image})`;
+      } else if (preview.description) {
+        item += `
+  > ${preview.description.replace(/\n+/g, " ")}`;
       }
     }
     const filePath = this.resolveReadingListPath(date);
     const existing = vault.getAbstractFileByPath(filePath);
     if (existing instanceof import_obsidian.TFile) {
       const content = await vault.read(existing);
-      await vault.modify(existing, this.insertIntoBlock(content, item));
+      const updated = this.settings.readingListMode === "daily" ? this.insertIntoBlock(content, item) : content + (content.endsWith("\n") ? "" : "\n") + item + "\n";
+      await vault.modify(existing, updated);
     } else {
       await this.ensureFolder(filePath);
       await vault.create(filePath, this.buildNewFile(date, item));
@@ -253,11 +257,10 @@ var HNReaderPlugin = class extends import_obsidian.Plugin {
     }
     return this.settings.readingListPath;
   }
+  /** Finds or creates "## HN Reading List" block and inserts item inside it. */
   insertIntoBlock(content, item) {
     const lines = content.split("\n");
-    const headerIdx = lines.findIndex(
-      (l) => l.trimEnd() === HN_BLOCK_HEADER
-    );
+    const headerIdx = lines.findIndex((l) => l.trimEnd() === HN_BLOCK_HEADER);
     if (headerIdx === -1) {
       const tail = content.endsWith("\n") ? "" : "\n";
       return content + tail + "\n" + HN_BLOCK_HEADER + "\n\n" + item + "\n";
@@ -298,9 +301,8 @@ ${item}
     const parts = filePath.split("/");
     if (parts.length <= 1) return;
     const folder = parts.slice(0, -1).join("/");
-    if (!this.app.vault.getAbstractFileByPath(folder)) {
+    if (!this.app.vault.getAbstractFileByPath(folder))
       await this.app.vault.createFolder(folder);
-    }
   }
 };
 var HNReaderView = class extends import_obsidian.ItemView {
@@ -343,10 +345,7 @@ var HNReaderView = class extends import_obsidian.ItemView {
     refreshBtn.innerHTML = "&#x21BB;";
     refreshBtn.addEventListener("click", () => {
       clearCache();
-      this.allIds = [];
-      this.loadedCount = 0;
-      this.stories = [];
-      this.previews.clear();
+      this.reset();
       this.loadStories();
     });
     const feedBar = root.createDiv("hn-reader-feed-bar");
@@ -359,16 +358,19 @@ var HNReaderView = class extends import_obsidian.ItemView {
       btn.addEventListener("click", () => {
         if (this.currentFeed === type) return;
         this.currentFeed = type;
-        this.allIds = [];
-        this.loadedCount = 0;
-        this.stories = [];
-        this.previews.clear();
+        this.reset();
         feedBar.querySelectorAll(".hn-reader-feed-btn").forEach((b) => b.removeClass("active"));
         btn.addClass("active");
         this.loadStories();
       });
     }
     root.createDiv("hn-reader-stories");
+  }
+  reset() {
+    this.allIds = [];
+    this.loadedCount = 0;
+    this.stories = [];
+    this.previews.clear();
   }
   // -- Data loading -----------------------------------------------------------
   async loadStories(append = false) {
@@ -469,43 +471,43 @@ var HNReaderView = class extends import_obsidian.ItemView {
       const actions = item.createDiv("hn-reader-actions");
       if (story.url) {
         const previewBtn = actions.createEl("button", {
-          cls: "hn-reader-preview-btn",
+          cls: "hn-reader-action-btn",
           attr: { "aria-label": "Load preview" }
         });
         (0, import_obsidian.setIcon)(previewBtn, "eye");
         previewBtn.addEventListener("click", async () => {
           if (this.previews.has(story.id)) {
-            const hidden = previewEl.style.display === "none";
-            previewEl.style.display = hidden ? "" : "none";
-            previewBtn.toggleClass("active", hidden);
+            const hidden = previewEl.hasClass("is-hidden");
+            previewEl.toggleClass("is-hidden", !hidden);
+            previewBtn.toggleClass("is-active", hidden);
             return;
           }
-          previewBtn.addClass("loading");
+          previewBtn.addClass("is-loading");
           previewEl.empty();
-          previewEl.createDiv("hn-reader-preview-loading").setText(
-            "Fetching preview\u2026"
-          );
+          previewEl.removeClass("is-hidden");
+          previewEl.createDiv("hn-reader-preview-loading").setText("Loading\u2026");
           const preview = await fetchLinkPreview(story.url);
           this.previews.set(story.id, preview);
-          previewBtn.removeClass("loading");
-          previewBtn.addClass("active");
+          previewBtn.removeClass("is-loading");
+          previewBtn.addClass("is-active");
           previewEl.empty();
           this.renderPreviewContent(previewEl, preview);
         });
       }
       const saveBtn = actions.createEl("button", {
-        cls: "hn-reader-save-btn",
-        attr: { "aria-label": "Save to Reading List" }
+        cls: "hn-reader-action-btn",
+        attr: { "aria-label": "Save to reading list" }
       });
       (0, import_obsidian.setIcon)(saveBtn, "bookmark");
       saveBtn.addEventListener("click", async () => {
         const preview = this.previews.get(story.id);
         await this.plugin.saveToReadingList(story, preview);
-        saveBtn.addClass("saved");
+        saveBtn.addClass("is-saved");
       });
     });
   }
   renderPreviewContent(el, preview) {
+    const sz = this.plugin.settings.previewImageSize;
     if (!preview.image && !preview.description) {
       el.createEl("p", {
         text: "No preview available",
@@ -518,6 +520,8 @@ var HNReaderView = class extends import_obsidian.ItemView {
       img.setAttr("src", preview.image);
       img.setAttr("loading", "lazy");
       img.setAttr("alt", "");
+      img.style.maxWidth = sz + "px";
+      img.style.maxHeight = sz + "px";
     }
     if (preview.description) {
       el.createEl("p", {
@@ -537,35 +541,35 @@ var HNReaderSettingTab = class extends import_obsidian.PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Display" });
     new import_obsidian.Setting(containerEl).setName("Display mode").setDesc("Where to open HN Reader by default").addDropdown(
-      (dd) => dd.addOption("sidebar", "Sidebar panel").addOption("tab", "New tab").addOption("both", "Sidebar + tab").setValue(this.plugin.settings.displayMode).onChange(async (value) => {
-        this.plugin.settings.displayMode = value;
+      (dd) => dd.addOption("sidebar", "Sidebar panel").addOption("tab", "New tab").addOption("both", "Sidebar + tab").setValue(this.plugin.settings.displayMode).onChange(async (v) => {
+        this.plugin.settings.displayMode = v;
         await this.plugin.saveSettings();
       })
     );
     new import_obsidian.Setting(containerEl).setName("Default feed").setDesc("Feed shown when plugin opens").addDropdown(
-      (dd) => dd.addOption("top", "Top").addOption("new", "New").addOption("best", "Best").addOption("ask", "Ask HN").addOption("show", "Show HN").addOption("jobs", "Jobs").setValue(this.plugin.settings.defaultFeed).onChange(async (value) => {
-        this.plugin.settings.defaultFeed = value;
+      (dd) => dd.addOption("top", "Top").addOption("new", "New").addOption("best", "Best").addOption("ask", "Ask HN").addOption("show", "Show HN").addOption("jobs", "Jobs").setValue(this.plugin.settings.defaultFeed).onChange(async (v) => {
+        this.plugin.settings.defaultFeed = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Stories per page").setDesc('How many stories to load per page. Click "Load more" to fetch the next batch.').addDropdown(
-      (dd) => dd.addOption("10", "10").addOption("20", "20").addOption("30", "30").addOption("50", "50").setValue(String(this.plugin.settings.storiesCount)).onChange(async (value) => {
-        this.plugin.settings.storiesCount = Number(value);
+    new import_obsidian.Setting(containerEl).setName("Stories per page").setDesc('Stories loaded per batch. Click "Load more" for the next page.').addDropdown(
+      (dd) => dd.addOption("10", "10").addOption("20", "20").addOption("30", "30").addOption("50", "50").setValue(String(this.plugin.settings.storiesCount)).onChange(async (v) => {
+        this.plugin.settings.storiesCount = Number(v);
         await this.plugin.saveSettings();
       })
     );
     containerEl.createEl("h2", { text: "Reading List" });
     new import_obsidian.Setting(containerEl).setName("Save mode").setDesc("Single file or append to daily notes").addDropdown(
-      (dd) => dd.addOption("single", "Single file").addOption("daily", "Daily note").setValue(this.plugin.settings.readingListMode).onChange(async (value) => {
-        this.plugin.settings.readingListMode = value;
+      (dd) => dd.addOption("single", "Single file").addOption("daily", "Daily note").setValue(this.plugin.settings.readingListMode).onChange(async (v) => {
+        this.plugin.settings.readingListMode = v;
         await this.plugin.saveSettings();
         this.display();
       })
     );
     if (this.plugin.settings.readingListMode === "single") {
       new import_obsidian.Setting(containerEl).setName("File path").setDesc("Path to the reading list note (e.g. Reading/HN List.md)").addText(
-        (text) => text.setPlaceholder("HN Reading List.md").setValue(this.plugin.settings.readingListPath).onChange(async (value) => {
-          this.plugin.settings.readingListPath = value.trim() || DEFAULT_SETTINGS.readingListPath;
+        (t) => t.setPlaceholder("HN Reading List.md").setValue(this.plugin.settings.readingListPath).onChange(async (v) => {
+          this.plugin.settings.readingListPath = v.trim() || DEFAULT_SETTINGS.readingListPath;
           await this.plugin.saveSettings();
         })
       );
@@ -573,33 +577,45 @@ var HNReaderSettingTab = class extends import_obsidian.PluginSettingTab {
       new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc(
         'Folder where your daily notes live (e.g. Daily Notes). Stories are saved into YYYY-MM-DD.md. A "## HN Reading List" block is created or updated automatically.'
       ).addText(
-        (text) => text.setPlaceholder("Daily Notes").setValue(this.plugin.settings.dailyNotesFolder).onChange(async (value) => {
-          this.plugin.settings.dailyNotesFolder = value.trim();
+        (t) => t.setPlaceholder("Daily Notes").setValue(this.plugin.settings.dailyNotesFolder).onChange(async (v) => {
+          this.plugin.settings.dailyNotesFolder = v.trim();
           await this.plugin.saveSettings();
         })
       );
     }
     containerEl.createEl("h2", { text: "Link Preview" });
     new import_obsidian.Setting(containerEl).setName("Save with image and description").setDesc(
-      "When saving a story, include its OG image and description in the note. If you already opened the preview, cached data is used. Otherwise the page is fetched automatically on save."
+      "Include the OG image and description when saving a story. Uses cached data if you already opened the preview, otherwise fetches on save."
     ).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.savePreview).onChange(async (value) => {
-        this.plugin.settings.savePreview = value;
+      (t) => t.setValue(this.plugin.settings.savePreview).onChange(async (v) => {
+        this.plugin.settings.savePreview = v;
         await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Preview image size (px)").setDesc(
+      "Max width/height for images in the preview panel and in saved notes."
+    ).addText(
+      (t) => t.setPlaceholder("200").setValue(String(this.plugin.settings.previewImageSize)).onChange(async (v) => {
+        const n = parseInt(v, 10);
+        if (n > 0) {
+          this.plugin.settings.previewImageSize = n;
+          await this.plugin.saveSettings();
+        }
       })
     );
     containerEl.createEl("h2", { text: "Tags" });
     new import_obsidian.Setting(containerEl).setName("Add tags to saved stories").setDesc("Append tags to each saved story line").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.addTags).onChange(async (value) => {
-        this.plugin.settings.addTags = value;
+      (t) => t.setValue(this.plugin.settings.addTags).onChange(async (v) => {
+        this.plugin.settings.addTags = v;
         await this.plugin.saveSettings();
         this.display();
       })
     );
     if (this.plugin.settings.addTags) {
       new import_obsidian.Setting(containerEl).setName("Tags").setDesc("Space-separated tags (e.g. #hn #reading #tech)").addText(
-        (text) => text.setPlaceholder("#hn #reading").setValue(this.plugin.settings.tags).onChange(async (value) => {
-          this.plugin.settings.tags = value.trim();
+        (t) => t.setPlaceholder("#hn #reading").setValue(this.plugin.settings.tags).onChange(async (v) => {
+          this.plugin.settings.tags = v.trim();
           await this.plugin.saveSettings();
         })
       );
